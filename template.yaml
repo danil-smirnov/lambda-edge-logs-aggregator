@@ -1,0 +1,112 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: lambda-edge-logs-aggregator
+
+
+Parameters:
+
+  LogLabel:
+    Type: String
+    Description: A label to mark entries for streaming (in addition to REPORT entries)
+    Default: ''
+
+
+Conditions: 
+
+  LogLabelNotDefined: !Equals [ !Ref LogLabel, '' ]
+
+
+Resources:
+
+  LogProxyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+
+  LogProxyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          const zlib = require('zlib');
+          
+          const logLabel = process.env.LOG_LABEL ? process.env.LOG_LABEL : 'REPORT RequestId:';
+          
+          function parseFloatWith(regex, input) {
+            let res = regex.exec(input);
+            return parseFloat(res[1]);
+          }
+          
+          exports.handler = async (event, context, callback) => {
+              const payload = new Buffer(event.awslogs.data, 'base64');
+              const result = JSON.parse(zlib.gunzipSync(payload).toString('utf8'));
+              const source_region = result.subscriptionFilters; // Retrieve source region from filter name
+              result.logEvents.forEach(entry => {
+                  if (entry.message.startsWith('REPORT RequestId:')) {
+                      let parts = entry.message.split("\t", 5);
+                      console.log(JSON.stringify({
+                          time_stamp: entry.timestamp,
+                          request_id: parts[0].split(' ')[2],
+                          source_region: source_region,
+                          duration: parseFloatWith(/Duration: (.*) ms/i, parts[1]),
+                          billed_duration: parseFloatWith(/Billed Duration: (.*) ms/i, parts[2]),
+                          memory_size: parseFloatWith(/Memory Size: (.*) MB/i, parts[3]),
+                          memory_used: parseFloatWith(/Max Memory Used: (.*) MB/i, parts[4])
+                      }));
+                  } else if (entry.message.indexOf(logLabel) !== -1) {
+                      let parts = entry.message.split(logLabel);
+                      let data = JSON.parse(parts[1]);
+                      let parts2 = parts[0].split("\t", 2);
+                      let meta_data = {time_stamp: entry.timestamp, request_id: parts2[1], source_region: source_region};
+                      // Additional logic to process log data
+                      console.log(JSON.stringify(Object.assign({}, meta_data, data)));
+                  } else console.log("ERROR Unknown log entry found - check subscription filter pattern");
+              });
+              callback();
+          };
+      Environment:
+        Variables:
+          LOG_LABEL: !Ref LogLabel
+      Handler: index.handler
+      Role: !GetAtt
+        - LogProxyFunctionRole
+        - Arn
+      Timeout: 5
+      Runtime: nodejs8.10
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt 
+        - LogProxyFunction
+        - Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: logs.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+  
+Outputs:
+
+  LogLabel:
+    Export:
+      Name: LogLabel2
+    Description: Log Label Parameter Value
+    Value: !If [LogLabelNotDefined, 'LogLabelNotDefined', !Ref LogLabel]
+
+  LogProxyFunctionArn:
+    Export:
+      Name: LogProxyFunctionArn2
+    Description: Log Proxy Lambda Function ARN
+    Value: !GetAtt
+      - LogProxyFunction
+      - Arn
