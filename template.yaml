@@ -99,13 +99,13 @@ Outputs:
 
   LogLabel:
     Export:
-      Name: LogLabel2
+      Name: LogLabel
     Description: Log Label Parameter Value
     Value: !If [LogLabelNotDefined, 'LogLabelNotDefined', !Ref LogLabel]
 
   LogProxyFunctionArn:
     Export:
-      Name: LogProxyFunctionArn2
+      Name: LogProxyFunctionArn
     Description: Log Proxy Lambda Function ARN
     Value: !GetAtt
       - LogProxyFunction

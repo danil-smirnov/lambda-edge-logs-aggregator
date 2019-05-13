@@ -7,7 +7,7 @@ fi
 
 EDGE_NAME="$1"
 
-LOG_LABEL='?'$(aws cloudformation list-exports --query 'Exports[?Name == `LogLabel2`].Value' --output text)
+LOG_LABEL='?'$(aws cloudformation list-exports --query 'Exports[?Name == `LogLabel`].Value' --output text)
 
 if [ "$#" -eq 2 ]; then
   FILTER_PATTERN="$2"
@@ -21,7 +21,7 @@ else
   fi
 fi
 
-LOGPROXY_ARN=$(aws cloudformation list-exports --query 'Exports[?Name == `LogProxyFunctionArn2`].Value' --output text)
+LOGPROXY_ARN=$(aws cloudformation list-exports --query 'Exports[?Name == `LogProxyFunctionArn`].Value' --output text)
 
 if [[ -z "${LOGPROXY_ARN}" ]] ; then
   echo 'Error: Log Proxy Lambda Function not found'
