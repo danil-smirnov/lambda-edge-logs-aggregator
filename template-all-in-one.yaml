@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Description: lambda-edge-logs-aggregator all-in-one version
+
+
+Parameters:
+
+  LambdaEdgeName:
+    Type: String
+    Description: A name of Lambda@Edge function to stream logs
+    AllowedPattern: '.+'
+    ConstraintDescription: LambdaEdgeName is mandatory parameter
+  LogLabel:
+    Type: String
+    Description: A label to mark entries for streaming (in addition to REPORT entries)
+    Default: ''
+  Report:
+    Type: String
+    Description: Do you want to stream REPORT entries?
+    Default: true
+    AllowedValues: [true, false]
+  SubscriptionSchedule:
+    Type: String
+    Description: CloudWatch schedule expression to re-run logs subscription Lambda
+    Default: ''
+
+
+Conditions:
+
+  SubscriptionScheduleDefined: !Not [!Equals [ !Ref SubscriptionSchedule, '' ]]
+
+
+Resources:
+
+  LogProxyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+
+  LogProxyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      InlineCode: |
+        const zlib = require('zlib');
+        
+        const logLabel = process.env.LOG_LABEL ? process.env.LOG_LABEL : 'REPORT RequestId:';
+        
+        function parseFloatWith(regex, input) {
+          const res = regex.exec(input);
+          return parseFloat(res[1]);
+        }
+        
+        exports.handler = async (event, context) => {
+          const payload = Buffer.from(event.awslogs.data, 'base64');
+          const result = JSON.parse(zlib.gunzipSync(payload).toString('utf8'));
+          const region = result.subscriptionFilters; // Retrieve source region from filter name
+          result.logEvents.forEach((entry) => {
+            if (entry.message.startsWith('REPORT RequestId:')) {
+              const parts = entry.message.split('\t', 5);
+              console.log(JSON.stringify({
+                time_stamp: entry.timestamp,
+                request_id: parts[0].split(' ')[2],
+                source_region: region,
+                duration: parseFloatWith(/Duration: (.*) ms/i, parts[1]),
+                billed_duration: parseFloatWith(/Billed Duration: (.*) ms/i, parts[2]),
+                memory_size: parseFloatWith(/Memory Size: (.*) MB/i, parts[3]),
+                memory_used: parseFloatWith(/Max Memory Used: (.*) MB/i, parts[4]),
+              }));
+            } else if (entry.message.indexOf(logLabel) !== -1) {
+              const parts = entry.message.split(logLabel);
+              const data = JSON.parse(parts[1]);
+              const parts2 = parts[0].split('\t', 2);
+              const meta = { time_stamp: entry.timestamp, request_id: parts2[1], source_region: region };
+              // Additional logic to process log data could be put here
+              console.log(JSON.stringify(Object.assign({}, meta, data)));
+            } else console.log('ERROR Unknown log entry found - check subscription filter pattern');
+          });
+        };
+      Environment:
+        Variables:
+          LOG_LABEL: !Ref LogLabel
+      Handler: index.handler
+      Role: !GetAtt
+        - LogProxyFunctionRole
+        - Arn
+      Runtime: nodejs8.10
+
+  LogProxyInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt 
+        - LogProxyFunction
+        - Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: logs.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+
+  LogSubscribeFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Action:
+          - sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+      Policies:
+        - PolicyName: GetRegions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Action:
+              - ec2:describeRegions
+              Effect: Allow
+              Resource: '*'
+        - PolicyName: SubscribeLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+            - Action:
+              - logs:describeLogGroups
+              - logs:putSubscriptionFilter
+              - logs:deleteSubscriptionFilter
+              Effect: Allow
+              Resource: '*'
+  
+  LogSubscribeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          
+          const ec2 = new AWS.EC2();
+          const cfnResp = require('cfn-response');
+          
+          const edgeName = process.env.EDGE_NAME;
+          const logProxy = process.env.LOG_PROXY;
+          const filterPattern = [process.env.REPORT ? '?REPORT' : null,
+            process.env.LOG_LABEL ? `?${process.env.LOG_LABEL}` : null].filter(Boolean).join(' ');
+          
+          function response(event, context, message, err) {
+            let status = 'SUCCESS';
+            if (err) { console.log(event, context, err); status = 'FAILED'; } else console.log(message);
+            if (Object.prototype.hasOwnProperty.call(event, 'RequestType')) return cfnResp.send(event, context, status, err ? { error: err } : { message }, event.LogicalResourceId);
+            return status;
+          }
+          
+          exports.handler = async (event, context) => {
+            console.log(`REQUEST RECEIVED:\n${JSON.stringify(event)}`);
+            return ec2.describeRegions({}).promise().then((resp) => {
+              const jobs = resp.Regions.map((r) => {
+                const region = r.RegionName;
+                const cw = new AWS.CloudWatchLogs({ region });
+                const params = { logGroupNamePrefix: `/aws/lambda/${(region === 'us-east-1' ? '' : 'us-east-1.') + edgeName}` };
+                return cw.describeLogGroups(params).promise().then((data) => {
+                  if (Object.prototype.hasOwnProperty.call(data, 'logGroups') && data.logGroups.length > 0) {
+                    if (Object.prototype.hasOwnProperty.call(event, 'RequestType') && event.RequestType === 'Delete') {
+                      return cw.deleteSubscriptionFilter({
+                        filterName: region,
+                        logGroupName: data.logGroups[0].logGroupName,
+                      }).promise().then(() => {
+                        console.log(`Unsubscribed from ${edgeName} logs in ${region}`);
+                      }).catch((err) => {
+                        console.log(err);
+                        return Promise.reject(err);
+                      });
+                    }
+                    return cw.putSubscriptionFilter({
+                      destinationArn: logProxy,
+                      filterName: region,
+                      filterPattern,
+                      logGroupName: data.logGroups[0].logGroupName,
+                    }).promise().then(() => {
+                      console.log(`Subscribed to ${edgeName} logs in ${region}`);
+                    }).catch((err) => {
+                      console.log(err);
+                      return Promise.reject(err);
+                    });
+                  } console.log(`No Lambda@Edge logs found in ${region}`);
+                  return data;
+                }).catch((err) => {
+                  console.log(err);
+                  return Promise.reject(err);
+                });
+              });
+              return Promise.all(jobs).then(() => response(event, context, 'Subscribe logs Lambda succeed'))
+                .catch(err => response(event, context, 'Subscribe logs Lambda failed', err));
+            }).catch(err => response(event, context, 'Subscribe logs Lambda failed', err));
+          };
+      Environment:
+        Variables:
+          EDGE_NAME: !Ref LambdaEdgeName
+          LOG_PROXY: !GetAtt
+            - LogProxyFunction
+            - Arn
+          LOG_LABEL: !Ref LogLabel
+          REPORT: !Ref Report
+      Handler: index.handler
+      Role: !GetAtt
+        - LogSubscribeFunctionRole
+        - Arn
+      Runtime: nodejs8.10
+      Timeout: 60
+
+  LogSubscribeCustom:
+    Type: Custom::LogSubscribeCustom
+    Properties:
+      ServiceToken: !GetAtt
+        - LogSubscribeFunction
+        - Arn
+      LambdaEdgeName: !Ref LambdaEdgeName
+      LogProxyFunction: !GetAtt
+        - LogProxyFunction
+        - Arn
+      LogLabel: !Ref LogLabel
+      Report: !Ref Report
+
+  LogSubscribeScheduledRule:
+    Type: AWS::Events::Rule
+    Condition: SubscriptionScheduleDefined
+    Properties:
+      Description: Scheduled rule for logs subscription
+      ScheduleExpression:
+        Ref: SubscriptionSchedule
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LogSubscribeFunction
+          - Arn
+        Id: LogSubscribeFunction
+  
+  LogSubscribeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: SubscriptionScheduleDefined
+    Properties:
+      FunctionName: !GetAtt 
+        - LogSubscribeFunction
+        - Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt
+        - LogSubscribeScheduledRule
+        - Arn
