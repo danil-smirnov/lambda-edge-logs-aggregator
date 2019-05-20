@@ -1,0 +1,8 @@
+{
+  "extends": ["eslint:recommended", "airbnb"],
+  "rules": {
+    "indent": ["error", 2],
+    "no-unused-vars": "warn",
+    "no-console": "off"
+  }
+}

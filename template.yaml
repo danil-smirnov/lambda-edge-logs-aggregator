@@ -44,36 +44,35 @@ Resources:
           const logLabel = process.env.LOG_LABEL ? process.env.LOG_LABEL : 'REPORT RequestId:';
           
           function parseFloatWith(regex, input) {
-            let res = regex.exec(input);
+            const res = regex.exec(input);
             return parseFloat(res[1]);
           }
           
-          exports.handler = async (event, context, callback) => {
-              const payload = new Buffer(event.awslogs.data, 'base64');
-              const result = JSON.parse(zlib.gunzipSync(payload).toString('utf8'));
-              const source_region = result.subscriptionFilters; // Retrieve source region from filter name
-              result.logEvents.forEach(entry => {
-                  if (entry.message.startsWith('REPORT RequestId:')) {
-                      let parts = entry.message.split("\t", 5);
-                      console.log(JSON.stringify({
-                          time_stamp: entry.timestamp,
-                          request_id: parts[0].split(' ')[2],
-                          source_region: source_region,
-                          duration: parseFloatWith(/Duration: (.*) ms/i, parts[1]),
-                          billed_duration: parseFloatWith(/Billed Duration: (.*) ms/i, parts[2]),
-                          memory_size: parseFloatWith(/Memory Size: (.*) MB/i, parts[3]),
-                          memory_used: parseFloatWith(/Max Memory Used: (.*) MB/i, parts[4])
-                      }));
-                  } else if (entry.message.indexOf(logLabel) !== -1) {
-                      let parts = entry.message.split(logLabel);
-                      let data = JSON.parse(parts[1]);
-                      let parts2 = parts[0].split("\t", 2);
-                      let meta_data = {time_stamp: entry.timestamp, request_id: parts2[1], source_region: source_region};
-                      // Additional logic to process log data
-                      console.log(JSON.stringify(Object.assign({}, meta_data, data)));
-                  } else console.log("ERROR Unknown log entry found - check subscription filter pattern");
-              });
-              callback();
+          exports.handler = async (event, context) => {
+            const payload = Buffer.from(event.awslogs.data, 'base64');
+            const result = JSON.parse(zlib.gunzipSync(payload).toString('utf8'));
+            const region = result.subscriptionFilters; // Retrieve source region from filter name
+            result.logEvents.forEach((entry) => {
+              if (entry.message.startsWith('REPORT RequestId:')) {
+                const parts = entry.message.split('\t', 5);
+                console.log(JSON.stringify({
+                  time_stamp: entry.timestamp,
+                  request_id: parts[0].split(' ')[2],
+                  source_region: region,
+                  duration: parseFloatWith(/Duration: (.*) ms/i, parts[1]),
+                  billed_duration: parseFloatWith(/Billed Duration: (.*) ms/i, parts[2]),
+                  memory_size: parseFloatWith(/Memory Size: (.*) MB/i, parts[3]),
+                  memory_used: parseFloatWith(/Max Memory Used: (.*) MB/i, parts[4]),
+                }));
+              } else if (entry.message.indexOf(logLabel) !== -1) {
+                const parts = entry.message.split(logLabel);
+                const data = JSON.parse(parts[1]);
+                const parts2 = parts[0].split('\t', 2);
+                const meta = { time_stamp: entry.timestamp, request_id: parts2[1], source_region: region };
+                // Additional logic to process log data could be put here
+                console.log(JSON.stringify(Object.assign({}, meta, data)));
+              } else console.log('ERROR Unknown log entry found - check subscription filter pattern');
+            });
           };
       Environment:
         Variables:
