@@ -3,7 +3,7 @@ lambda-edge-logs-aggregator
 
 This project is to aggregate cross-region Lambda@Edge logs into one CloudWatch log group.
 
-The logs will be streamed into joint CloudWatch group in the region of Log Proxy Lambda
+The logs will be streamed into joint CloudWatch group in the region of Log Proxy Lambda  
 Function deployed.
 
 The solution contains two versions: the simplistic one, powered by subscription shell script,  
@@ -12,7 +12,7 @@ and all-in-one CloudFormation stack, compatible with AWS Serverless Application 
 Simplified version
 ------------------
 
-This version includes LogProxy Lambda in CloudFormation stack and subscription helper script.
+This version includes LogProxy Lambda in CloudFormation stack and subscription helper script.  
 No other resources apart from those relevant to LogProxy Lambda are deployed with the stack.
 
 ### How to deploy
@@ -41,7 +41,7 @@ Serverless Application Repository version
 -----------------------------------------
 
 This version contains all the resources in one CloudFormation template and accessible  
-through AWS Serverless Application Repository [https://serverlessrepo.aws.amazon.com/applications/arn:aws:serverlessrepo:us-east-1:085576722239:applications~lambda-edge-logs-aggregator](url).
+through AWS Serverless Application Repository [url](https://serverlessrepo.aws.amazon.com/applications/arn:aws:serverlessrepo:us-east-1:085576722239:applications~lambda-edge-logs-aggregator).
 
 Additional LogSubscribe Lambda function is created along with LogProxy to subscribe  
 the latter to Lambda@Edge CloudWatch log groups on stack creation or by schedule.
