@@ -156,10 +156,12 @@ Resources:
             process.env.LOG_LABEL ? `?${process.env.LOG_LABEL}` : null].filter(Boolean).join(' ');
           
           function response(event, context, message, err) {
-            let status = 'SUCCESS';
-            if (err) { console.log(event, context, err); status = 'FAILED'; } else console.log(message);
-            if (Object.prototype.hasOwnProperty.call(event, 'RequestType')) return cfnResp.send(event, context, status, err ? { error: err } : { message }, event.LogicalResourceId);
-            return status;
+            return new Promise(() => {
+              let status = 'SUCCESS';
+              if (err) { console.log(event, context, err); status = 'FAILED'; } else console.log(message);
+              if (Object.prototype.hasOwnProperty.call(event, 'RequestType')) return cfnResp.send(event, context, status, err ? { error: err } : { message }, event.LogicalResourceId);
+              return status;
+            });
           }
           
           exports.handler = async (event, context) => {
