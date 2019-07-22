@@ -6,6 +6,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 EDGE_NAME="$1"
+EDGE_LOGGROUP="/aws/lambda/us-east-1.${EDGE_NAME}"
 
 LOG_LABEL='?'$(aws cloudformation list-exports --query 'Exports[?Name == `LogLabel`].Value' --output text)
 
@@ -33,10 +34,7 @@ echo "Searching for Lambda@Edge log groups in AWS regions..."
 regions=()
 for region in $(aws --output text  ec2 describe-regions | cut -f 3)
 do
-  if [[ "${region}" = "us-east-1" ]] \
-    && [[ -n "$(aws --output text  logs describe-log-groups --log-group-name-prefix "/aws/lambda/$EDGE_NAME" --region $region --query 'logGroups[].logGroupName')" ]] ; then
-    regions+=("${region}")
-  elif [[ -n "$(aws --output text  logs describe-log-groups --log-group-name-prefix "/aws/lambda/us-east-1.$EDGE_NAME" --region $region --query 'logGroups[].logGroupName')" ]] ; then
+  if [[ -n "$(aws --output text  logs describe-log-groups --log-group-name-prefix ${EDGE_LOGGROUP} --region $region --query 'logGroups[].logGroupName')" ]] ; then
     regions+=("${region}")
   fi
 done
@@ -51,14 +49,8 @@ echo -e "\nSubscribing ${LOGPROXY_ARN}\n  to Lambda@Edge logs in regions: ${regi
 for region in "${regions[@]}"
 do
 
-if [[ "${region}" = "us-east-1" ]] ; then
-    LOGGROUP="/aws/lambda/${EDGE_NAME}"
-else
-    LOGGROUP="/aws/lambda/us-east-1.${EDGE_NAME}"
-fi
-
 err=$( aws logs put-subscription-filter \
-    --log-group-name "${LOGGROUP}" \
+    --log-group-name "${EDGE_LOGGROUP}" \
     --filter-name "${region}" \
     --filter-pattern "${FILTER_PATTERN}" \
     --destination-arn "${LOGPROXY_ARN}" \

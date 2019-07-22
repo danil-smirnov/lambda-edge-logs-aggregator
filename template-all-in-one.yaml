@@ -170,7 +170,7 @@ Resources:
               const jobs = resp.Regions.map((r) => {
                 const region = r.RegionName;
                 const cw = new AWS.CloudWatchLogs({ region });
-                const params = { logGroupNamePrefix: `/aws/lambda/${(region === 'us-east-1' ? '' : 'us-east-1.') + edgeName}` };
+                const params = { logGroupNamePrefix: `/aws/lambda/us-east-1.${edgeName}` };
                 return cw.describeLogGroups(params).promise().then((data) => {
                   if (Object.prototype.hasOwnProperty.call(data, 'logGroups') && data.logGroups.length > 0) {
                     if (Object.prototype.hasOwnProperty.call(event, 'RequestType') && event.RequestType === 'Delete') {
