@@ -6,6 +6,9 @@ This project is to aggregate cross-region Lambda@Edge logs into one CloudWatch l
 The logs will be streamed into joint CloudWatch group in the region of Log Proxy Lambda  
 Function deployed.
 
+Please read this blog post for more details:  
+https://blog.smirnov.la/aggregating-lambda-edge-logs-into-one-cloudwatch-log-group-52cdef2e7ce2
+
 The solution contains two versions: the simplistic one, powered by subscription shell script,  
 and all-in-one CloudFormation stack, compatible with AWS Serverless Application Repository.
 
