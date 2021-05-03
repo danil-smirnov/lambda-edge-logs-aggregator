@@ -94,7 +94,7 @@ Resources:
       Role: !GetAtt
         - LogProxyFunctionRole
         - Arn
-      Runtime: nodejs8.10
+      Runtime: nodejs12.x
 
   LogProxyInvokePermission:
     Type: AWS::Lambda::Permission
@@ -218,7 +218,7 @@ Resources:
       Role: !GetAtt
         - LogSubscribeFunctionRole
         - Arn
-      Runtime: nodejs8.10
+      Runtime: nodejs12.x
       Timeout: 60
 
   LogSubscribeCustom:
