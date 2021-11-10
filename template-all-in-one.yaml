@@ -152,7 +152,7 @@ Resources:
           
           const edgeName = process.env.EDGE_NAME;
           const logProxy = process.env.LOG_PROXY;
-          const filterPattern = [process.env.REPORT ? '?REPORT' : null,
+          const filterPattern = [process.env.REPORT === 'true' ? '?REPORT' : null,
             process.env.LOG_LABEL ? `?${process.env.LOG_LABEL}` : null].filter(Boolean).join(' ');
           
           function response(event, context, message, err) {
